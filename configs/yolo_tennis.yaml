@@ -1,0 +1,16 @@
+# Config training YOLOv8n per tennis (player/racket/ball)
+model: yolov8n.pt
+data: tennis.yaml   # da generare con Roboflow export
+epochs: 100
+imgsz: 640
+batch: 16
+device: 0           # GPU
+patience: 20
+optimizer: AdamW
+lr0: 0.001
+augment: true
+# Classi: 0=person, 1=tennis_racket, 2=tennis_ball (remap da COCO se serve)
+names:
+  0: person
+  1: tennis_racket
+  2: tennis_ball

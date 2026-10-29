@@ -1,0 +1,14 @@
+# Config training court keypoints (YOLOv8-pose, 14 keypoints)
+model: yolov8n-pose.pt
+data: court_keypoints.yaml
+epochs: 150
+imgsz: 640
+batch: 16
+device: 0
+patience: 30
+optimizer: AdamW
+lr0: 0.001
+# 14 keypoints: 4 corners + service line intersections + net posts
+kpt_shape: [14, 3]
+names:
+  0: court

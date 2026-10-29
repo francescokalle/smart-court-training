@@ -1,0 +1,14 @@
+# Config training TrackNet (ball tracking)
+model: tracknet
+input_frames: 3
+output: heatmap
+img_size: [288, 512]
+epochs: 30
+batch: 4
+lr: 0.001
+optimizer: Adam
+loss: mse
+# Dataset: TrackNet format (Frame, Visibility, X, Y)
+train_split: 0.8
+val_split: 0.1
+test_split: 0.1
