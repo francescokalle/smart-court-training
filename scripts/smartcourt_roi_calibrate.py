@@ -177,6 +177,11 @@ class RoiCalibrator:
             return
 
         if event == cv2.EVENT_MOUSEMOVE and self.panning:
+            # Se il tasto centrale è stato rilasciato fuori dalla finestra,
+            # OpenCV potrebbe non inviare MBUTTONUP: controlla i flag.
+            if not (flags & cv2.EVENT_FLAG_MBUTTON):
+                self.panning = False
+                return
             if self.pan_start is not None and self.pan_origin is not None:
                 self.ox = self.pan_origin[0] + (x - self.pan_start[0])
                 self.oy = self.pan_origin[1] + (y - self.pan_start[1])
@@ -202,6 +207,9 @@ class RoiCalibrator:
             return
 
         if event == cv2.EVENT_MOUSEMOVE and self.drag_point is not None:
+            if not (flags & cv2.EVENT_FLAG_LBUTTON):
+                self.drag_point = None
+                return
             self.points[self.drag_point] = self.screen_to_image(x, y)
             return
 
@@ -297,7 +305,7 @@ class RoiCalibrator:
             self._draw_message(canvas)
             return
         lines = [
-            "SMART COURT — Calibrazione campo (4 angoli)",
+            "SMART COURT — 4 angoli | se tagliati: dezoom e clicca nel grigio",
             "Click SX: aggiungi/sposta | Destro: rimuovi | Rotella: zoom | Centrale o WASD: pan",
             "F: fit | R: reset | H: nascondi aiuto | INVIO: salva | ESC: annulla",
             f"Punti: {len(self.points)}/4 | Zoom: {self.zoom / self.fit_zoom * 100:.0f}%"
