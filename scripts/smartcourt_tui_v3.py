@@ -26,6 +26,16 @@ import numpy as np
 
 from postprocessing import CourtROI, BallKalman, detect_bounces
 
+try:
+    from court_geometry import CourtModel
+except ImportError:
+    CourtModel = None
+
+try:
+    from smartcourt_metrics import analyze_tracks
+except ImportError:
+    analyze_tracks = None
+
 
 # ── Utility ────────────────────────────────────────────────────────────────
 def clear():
@@ -98,6 +108,20 @@ def analyze_video(model, video_path, out_dir, roi_path=None):
         print("  ROI:    nessuna (tutte le persone saranno considerate player)")
         print("          Per filtrare gli spettatori: python smartcourt_roi_calibrate.py video.mp4")
 
+    court_model = None
+    if used_roi_path is not None and CourtModel is not None:
+        try:
+            court_model = CourtModel.from_roi_json(used_roi_path)
+            cam = court_model.camera
+            if cam is not None:
+                print(f"  Campo:  {court_model.court_type} | camera h={cam.C[2]:.1f} m, "
+                      f"f={cam.focal_px:.0f} px, conf={cam.confidence:.2f}")
+            else:
+                print(f"  Campo:  {court_model.court_type} | camera non calibrata")
+        except Exception as exc:
+            print(f"  Campo:  geometria non disponibile ({exc})")
+            court_model = None
+
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     frames_dir = out_dir / "frames"
@@ -112,6 +136,9 @@ def analyze_video(model, video_path, out_dir, roi_path=None):
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     print(f"  FPS: {fps:.1f} | Frame: {total} | {width}x{height}\n")
+
+    tracks_path = out_dir / "tracks.jsonl"
+    tracks_file = open(tracks_path, "w", encoding="utf-8")
 
     # Filtri
     MIN_PLAYER_H = 40
@@ -144,6 +171,9 @@ def analyze_video(model, video_path, out_dir, roi_path=None):
         dets = results[0].boxes
         has_ball = False
         ball_meas = None
+        frame_players = []
+        frame_ball_raw = None
+        frame_ball = None
 
         if dets is not None:
             for b in dets:
@@ -162,11 +192,18 @@ def analyze_video(model, video_path, out_dir, roi_path=None):
                     player_positions.append((cx, cy))
                     tid = int(b.id.item()) if getattr(b, "id", None) is not None else -1
                     player_tracks.setdefault(tid, []).append((cx, cy))
+                    frame_players.append({
+                        "id": tid,
+                        "bbox": [round(float(x1), 1), round(float(y1), 1),
+                                 round(float(x2), 1), round(float(y2), 1)],
+                        "center": [round(float(cx), 1), round(float(cy), 1)],
+                    })
 
                 elif cls == 32:  # sports ball
                     area = w * h
                     if not (MIN_BALL_AREA <= area <= MAX_BALL_AREA):
                         continue
+                    frame_ball_raw = (cx, cy)
                     # filtro salto temporale
                     if last_ball is not None:
                         dist = float(np.hypot(cx - last_ball[0], cy - last_ball[1]))
@@ -182,11 +219,13 @@ def analyze_video(model, video_path, out_dir, roi_path=None):
             if accepted:
                 ball_positions.append((frame_idx, kx, ky))
                 ball_accepted.append((kx, ky))
+                frame_ball = (kx, ky)
         else:
             kx, ky, accepted = kalman.update(None)
             if accepted and kalman.initialized:
                 ball_positions.append((frame_idx, kx, ky))
                 ball_accepted.append((kx, ky))
+                frame_ball = (kx, ky)
 
         # Rally segmentation
         if has_ball:
@@ -204,6 +243,16 @@ def analyze_video(model, video_path, out_dir, roi_path=None):
                     last_ball = None
                     kalman.reset()
 
+        # Salva traccia per-frame (per metriche geometriche)
+        tracks_file.write(json.dumps({
+            "frame": frame_idx,
+            "ball": [round(float(frame_ball[0]), 1), round(float(frame_ball[1]), 1)]
+            if frame_ball is not None else None,
+            "ball_raw": [round(float(frame_ball_raw[0]), 1), round(float(frame_ball_raw[1]), 1)]
+            if frame_ball_raw is not None else None,
+            "players": frame_players,
+        }, separators=(",", ":")) + "\n")
+
         # Salva frame annotato
         if frame_idx % 30 == 0:
             annotated = results[0].plot()
@@ -216,16 +265,59 @@ def analyze_video(model, video_path, out_dir, roi_path=None):
             print(f"\r  Progresso: {frame_idx/total*100:.1f}% ({frame_idx}/{total})", end="", flush=True)
 
     cap.release()
+    tracks_file.close()
     if rally_start is not None and frame_idx - rally_start >= 15:
         rallies.append((rally_start, frame_idx - gap))
 
     # Bounce detection
     if len(ball_accepted) > 3:
-        bounce_idx = detect_bounces(ball_accepted, vy_threshold=4.0, min_interval=4)
+        bounce_idx = detect_bounces(
+            ball_accepted,
+            vy_threshold=4.0,
+            min_interval=4,
+            frames=[p[0] for p in ball_positions],
+        )
         bounce_frames = [ball_positions[i][0] for i in bounce_idx if i < len(ball_positions)]
         print(f"\n\n  ✅ {frame_idx} frame | Rally: {len(rallies)} | Ball: {len(ball_positions)} | Bounce: {len(bounce_frames)} | Player: {len(player_positions)}")
     else:
         print(f"\n\n  ✅ {frame_idx} frame | Rally: {len(rallies)} | Ball: {len(ball_positions)} | Player: {len(player_positions)}")
+
+    # Metadati tracce (per il modulo metriche)
+    tracks_meta = {
+        "video": video_path,
+        "fps": fps,
+        "width": width,
+        "height": height,
+        "total_frames": frame_idx,
+        "bounce_frames": bounce_frames,
+        "rallies": rallies,
+    }
+    (out_dir / "tracks_meta.json").write_text(
+        json.dumps(tracks_meta, indent=2), encoding="utf-8"
+    )
+
+    # Metriche geometriche (solo se il campo è calibrato)
+    metrics = None
+    if court_model is not None and used_roi_path is not None and analyze_tracks is not None:
+        print("\n📐 Calcolo metriche campo...")
+        try:
+            metrics = analyze_tracks(
+                tracks_path,
+                tracks_meta,
+                used_roi_path,
+                out_dir=out_dir,
+                bounce_frames=bounce_frames,
+                rallies=rallies,
+            )
+            ms = metrics["summary"]
+            print(f"  Rimbalzi: {ms['bounces']} (in={ms['in_bounces']}, out={ms['out_bounces']})")
+            print(f"  Velocità media: {ms['avg_speed_kmh']} km/h | max: {ms['max_speed_kmh']} km/h")
+            print(f"  Rally: {ms['rallies']} | passaggi rete medi: {ms['avg_net_crossings']}")
+            print(f"  Dettaglio: {out_dir / 'metrics.json'}")
+        except Exception as exc:
+            print(f"  ⚠️  Metriche non calcolate: {exc}")
+    elif court_model is None:
+        print("\n  ℹ️  Per velocità/in-out: ricalibra il campo con lo script ROI aggiornato.")
 
     # Report
     report = {
@@ -234,6 +326,7 @@ def analyze_video(model, video_path, out_dir, roi_path=None):
         "total_frames": frame_idx,
         "resolution": [width, height],
         "roi": roi.polygon.tolist() if roi is not None else None,
+        "court_calibrated": court_model is not None,
         "rallies": len(rallies),
         "rally_list": rallies,
         "ball_detections": len(ball_positions),
@@ -241,6 +334,8 @@ def analyze_video(model, video_path, out_dir, roi_path=None):
         "bounce_frames": bounce_frames,
         "player_detections": len(player_positions),
         "player_tracks": len(player_tracks),
+        "tracks": str(tracks_path),
+        "metrics": metrics["summary"] if metrics else None,
     }
     with open(out_dir / "report.json", "w") as f:
         json.dump(report, f, indent=2)

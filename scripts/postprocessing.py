@@ -45,7 +45,7 @@ class CourtROI:
         if not p.exists():
             return None
         data = json.loads(p.read_text())
-        poly = data.get("polygon") or data.get("court")
+        poly = data.get("polygon") or data.get("image_corners")
         if not poly:
             return None
         return cls(poly)
@@ -130,16 +130,30 @@ def detect_bounces(
     positions: List[Tuple[float, float]],
     vy_threshold: float = 4.0,
     min_interval: int = 4,
+    frames: Optional[Sequence[int]] = None,
 ) -> List[int]:
-    """Rileva rimbalzi come inversione brusca della velocità verticale (down -> up)."""
+    """Rileva rimbalzi come inversione brusca della velocità verticale (down -> up).
+
+    Se `frames` è fornito, la velocità viene normalizzata per il salto
+    temporale tra campioni (utile quando il tracker salta qualche frame).
+    `min_interval` è in frame.
+    """
     bounces = []
-    last = -min_interval
+    last = -10**9
     for i in range(1, len(positions) - 1):
-        v_prev = positions[i][1] - positions[i - 1][1]
-        v_next = positions[i + 1][1] - positions[i][1]
-        if v_prev > vy_threshold and v_next < -vy_threshold and (i - last) >= min_interval:
+        if frames is not None:
+            dt_prev = frames[i] - frames[i - 1]
+            dt_next = frames[i + 1] - frames[i]
+        else:
+            dt_prev = dt_next = 1
+        if dt_prev <= 0 or dt_next <= 0:
+            continue
+        v_prev = (positions[i][1] - positions[i - 1][1]) / dt_prev
+        v_next = (positions[i + 1][1] - positions[i][1]) / dt_next
+        f = frames[i] if frames is not None else i
+        if v_prev > vy_threshold and v_next < -vy_threshold and (f - last) >= min_interval:
             bounces.append(i)
-            last = i
+            last = f
     return bounces
 
 

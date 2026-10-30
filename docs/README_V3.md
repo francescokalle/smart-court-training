@@ -9,6 +9,11 @@
 - ✅ Report JSON (rally, ball, bounce, player tracks)
 - ✅ Heatmap giocatori
 - ✅ Highlights FFmpeg
+- ✅ **Omografia del campo** (pixel -> metri reali)
+- ✅ **In/out** (singolo, doppio, service box)
+- ✅ **Velocità media tra rimbalzi** (km/h)
+- ✅ **Metriche rally** (passaggi rete, durata, highlight score)
+- ✅ **Calibrazione camera** da una vista (per velocità 3D sperimentale)
 
 ## Requisiti
 - Python 3.10+
@@ -25,6 +30,8 @@
 4. Metti nella stessa cartella:
    - `smartcourt_tui_v3.py`
    - `smartcourt_roi_calibrate.py`
+   - `smartcourt_metrics.py`
+   - `court_geometry.py`
    - `postprocessing.py`
    - `best.pt` (modello YOLO)
 
@@ -52,6 +59,13 @@ Controlli completi:
 Salva automaticamente `<nome_video>_roi.json` accanto al video
 (es. `partita.mp4` → `partita_roi.json`).
 
+Per il campo singolo:
+```
+python smartcourt_roi_calibrate.py video.mp4 --court singles
+```
+Il file contiene anche omografia, misure del campo e calibrazione della
+telecamera: serve per velocità, in/out e metriche.
+
 ### 2. Avvia il TUI
 ```
 python smartcourt_tui_v3.py
@@ -62,12 +76,36 @@ python smartcourt_tui_v3.py
 
 ## Output
 - `output/report.json` — statistiche
+- `output/metrics.json` — rimbalzi, in/out, velocità, rally, highlight
+- `output/tracks.jsonl` — traccia per-frame (palla + giocatori)
+- `output/tracks_meta.json` — fps, rally, frame dei rimbalzi
 - `output/heatmap_players.jpg` — heatmap giocatori
 - `output/highlights.mp4` — highlights rally
 - `output/frames/` — frame annotati
 
+## Misurazione velocità: cosa è corretto e cosa no
+
+L'omografia vale per punti **sul piano del campo**. La palla in volo è
+sopra il campo, quindi il pixel proiettato sul piano non è la sua
+posizione reale.
+
+- ✅ **Velocità media tra due rimbalzi**: corretta, perché ai rimbalzi la
+  palla è a quota zero.
+- ⚠️ **Velocità istantanea in volo**: richiede il fit balistico 3D
+  (funzione `CourtModel.fit_ballistic`) oppure due telecamere. È
+  sperimentale e dipende dalla precisione della calibrazione.
+- ❌ **Velocità = distanza pixel / tempo**: non usarla, sovrastima o
+  sottostima a seconda dell'altezza della palla.
+
+La telecamera deve essere **fissa** (treppiede). Con zoom/pan la
+calibrazione del campo cambia e le metriche non sono valide.
+
 ## Cosa NON è ancora implementato
+- Riconoscimento dritto/rovescio: serve pose/racchetta o un piccolo
+  classificatore temporale addestrato su colpi etichettati.
+- Rilevamento del punto (palla fuori, doppio rimbalzo, fallo): regole
+  parziali presenti, ma da validare.
+- Highlights con audio/tifo: per ora sono basati sulla durata del rally.
 - Court Keypoints automatico (modello ResNet-50) — richiede integrazione specifica
 - TrackNet ball tracking (modello U-Net 3-frame) — richiede preprocessing
-- Omografia in metri reali — richiede calibrazione 4 punti + H matrix
 - TensorRT — solo su Jetson

@@ -7,8 +7,12 @@ salvare coordinate negative o maggiori della risoluzione.
 
 Uso:
     python smartcourt_roi_calibrate.py video.mp4
+    python smartcourt_roi_calibrate.py video.mp4 --court singles
     python smartcourt_roi_calibrate.py video.mp4 --frame 300
     python smartcourt_roi_calibrate.py video.mp4 --time 12.5
+
+Il file salvato contiene anche omografia, misure del campo e calibrazione
+della telecamera: serve al TUI per calcolare velocità, in/out e metriche.
 
 Controlli:
     Click sinistro      aggiungi angolo (max 4)
@@ -41,6 +45,11 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+
+try:
+    from court_geometry import CourtModel
+except Exception:  # pragma: no cover - il calibratore resta usabile anche senza
+    CourtModel = None
 
 
 def default_canvas() -> tuple[int, int]:
@@ -410,6 +419,8 @@ def main() -> None:
                         help="Secondo del video da usare (alternativa a --frame)")
     parser.add_argument("--out", default=None,
                         help="File output (default: <video>_roi.json accanto al video)")
+    parser.add_argument("--court", choices=("doubles", "singles"), default="doubles",
+                        help="Righe da cliccare: doppio (default) o singolo")
     parser.add_argument("--canvas-w", type=int, default=0, help="Larghezza finestra (default auto)")
     parser.add_argument("--canvas-h", type=int, default=0, help="Altezza finestra (default auto)")
     args = parser.parse_args()
@@ -437,10 +448,12 @@ def main() -> None:
     if args.canvas_h > 0:
         canvas_h = args.canvas_h
 
+    court_label = "doppio (righe esterne)" if args.court == "doubles" else "singolo"
     print("=" * 64)
-    print("  CALIBRAZIONE ROI — angoli del campo")
+    print(f"  CALIBRAZIONE ROI — campo {court_label}")
     print("=" * 64)
-    print("  Ordine consigliato: alto-sx → alto-dx → basso-dx → basso-sx")
+    print("  Ordine: alto-sx → alto-dx → basso-dx → basso-sx")
+    print("  (alto = lato lontano, basso = lato vicino alla telecamera)")
     print()
     print("  Se un angolo è tagliato dal bordo del video:")
     print("   1. usa la rotella per DEZOOMARE")
@@ -459,12 +472,33 @@ def main() -> None:
 
     out_path = Path(args.out) if args.out else roi_path_for(args.video)
     data = {
-        "polygon": [[round(float(x), 1), round(float(y), 1)] for x, y in points],
         "video": str(args.video),
         "frame": actual_frame,
-        "frame_size": [int(calib.fw), int(calib.fh)],
         "note": "Coordinate in pixel immagine; possono essere fuori frame.",
     }
+    if CourtModel is not None:
+        try:
+            cm = CourtModel(points, court_type=args.court,
+                            image_size=(calib.fw, calib.fh))
+            data.update(cm.to_dict())
+        except Exception as exc:
+            print(f"\n⚠️  Geometria campo non calcolata: {exc}")
+            data.update({
+                "court": args.court,
+                "polygon": [[round(float(x), 1), round(float(y), 1)] for x, y in points],
+                "frame_size": [int(calib.fw), int(calib.fh)],
+            })
+    else:
+        data.update({
+            "court": args.court,
+            "polygon": [[round(float(x), 1), round(float(y), 1)] for x, y in points],
+            "frame_size": [int(calib.fw), int(calib.fh)],
+        })
+
+    # Mantieni i campi base sempre presenti
+    data["video"] = str(args.video)
+    data["frame"] = actual_frame
+    data["polygon"] = [[round(float(x), 1), round(float(y), 1)] for x, y in points]
     try:
         out_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
     except OSError as exc:
@@ -481,7 +515,16 @@ def main() -> None:
     for i, (x, y) in enumerate(points, 1):
         inside = 0 <= x < calib.fw and 0 <= y < calib.fh
         print(f"   {i}: ({x:.1f}, {y:.1f})  {'dentro' if inside else 'FUORI frame'}")
-    print("\n  Ora avvia il TUI: python smartcourt_tui_v3.py")
+
+    cam = data.get("camera")
+    if cam:
+        print(f"  📷 Camera: h={cam['center_m'][2]:.1f} m, "
+              f"f={cam['focal_px']:.0f} px, conf={cam['confidence']:.2f}")
+        print("     → velocità 3D, in/out e metriche disponibili.")
+    else:
+        print("  ⚠️  Camera non calibrata: in/out sì, velocità 3D no.")
+
+    print(f"\n  Ora avvia il TUI: python smartcourt_tui_v3.py")
 
 
 if __name__ == "__main__":
