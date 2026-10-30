@@ -18,6 +18,7 @@ Prima calibra il campo (una volta per video):
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import cv2
@@ -69,16 +70,30 @@ def load_yolo(model_dir):
     return None
 
 
+def roi_path_for(video_path):
+    """ROI salvata accanto al video: partita.mp4 -> partita_roi.json."""
+    p = Path(video_path)
+    return p.with_name(p.stem + "_roi.json")
+
+
 # ── Analisi video ───────────────────────────────────────────────────────────
-def analyze_video(model, video_path, out_dir, roi_path="roi.json"):
+def analyze_video(model, video_path, out_dir, roi_path=None):
     clear()
     banner()
     print(f"\n  Video:  {video_path}")
     print(f"  Output: {out_dir}")
 
-    roi = CourtROI.from_json(roi_path)
+    # Cerca prima la ROI specifica del video, poi il vecchio roi.json
+    candidates = [roi_path] if roi_path else [roi_path_for(video_path), Path("roi.json")]
+    roi = None
+    used_roi_path = None
+    for candidate in candidates:
+        roi = CourtROI.from_json(candidate)
+        if roi is not None:
+            used_roi_path = candidate
+            break
     if roi is not None:
-        print(f"  ROI:    {roi_path} ({len(roi.polygon)} punti)")
+        print(f"  ROI:    {used_roi_path} ({len(roi.polygon)} punti)")
     else:
         print("  ROI:    nessuna (tutte le persone saranno considerate player)")
         print("          Per filtrare gli spettatori: python smartcourt_roi_calibrate.py video.mp4")
@@ -327,7 +342,8 @@ def main():
         elif c == "2":
             v = ask("Path del video per calibrazione", video_path or "")
             if v:
-                subprocess.run(["python", "smartcourt_roi_calibrate.py", v])
+                calib_script = Path(__file__).resolve().parent / "smartcourt_roi_calibrate.py"
+                subprocess.run([sys.executable, str(calib_script), v])
                 input("\n  Premi INVIO...")
         elif c == "3":
             clear()

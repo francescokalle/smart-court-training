@@ -35,13 +35,28 @@
 python smartcourt_roi_calibrate.py video.mp4
 ```
 Clicca i 4 angoli del campo in ordine: alto-sx, alto-dx, basso-dx, basso-sx.
-Salva `roi.json`.
+
+**Se un angolo è tagliato dal bordo del video:**
+- usa la **rotella** per dezoomare (il video rimpicciolisce e appare lo spazio grigio attorno)
+- clicca direttamente nello spazio grigio, anche fuori dal frame
+- le coordinate fuori frame vengono salvate e gestite correttamente
+
+Controlli completi:
+- **Click sinistro**: aggiungi angolo / trascina un angolo esistente
+- **Click destro**: rimuovi l'angolo sotto il cursore
+- **Rotella**: zoom centrato sul cursore
+- **Tasto centrale trascinato** oppure **W/A/S/D**: pan
+- **F**: fit, **R**: reset punti
+- **INVIO**: salva (servono 4 punti), **ESC**: annulla
+
+Salva automaticamente `<nome_video>_roi.json` accanto al video
+(es. `partita.mp4` → `partita_roi.json`).
 
 ### 2. Avvia il TUI
 ```
 python smartcourt_tui_v3.py
 ```
-- Opzione 1: analizza video (usa `roi.json` se presente)
+- Opzione 1: analizza video (usa `<video>_roi.json` se presente, oppure `roi.json`)
 - Opzione 2: ricalibra ROI
 - Opzione 3: info modello
 
