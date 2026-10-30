@@ -46,7 +46,7 @@ Controlli completi:
 - **Click destro**: rimuovi l'angolo sotto il cursore
 - **Rotella**: zoom centrato sul cursore
 - **Tasto centrale trascinato** oppure **W/A/S/D**: pan
-- **F**: fit, **R**: reset punti
+- **F**: fit, **R**: reset punti, **H**: mostra/nascondi aiuto
 - **INVIO**: salva (servono 4 punti), **ESC**: annulla
 
 Salva automaticamente `<nome_video>_roi.json` accanto al video
