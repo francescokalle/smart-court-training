@@ -457,7 +457,17 @@ def main() -> None:
         "frame_size": [int(calib.fw), int(calib.fh)],
         "note": "Coordinate in pixel immagine; possono essere fuori frame.",
     }
-    out_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    try:
+        out_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    except OSError as exc:
+        if args.out:
+            print(f"\n❌ Impossibile scrivere {out_path}: {exc}")
+            return
+        # Es. video su disco protetto/network: salva nella cartella corrente
+        out_path = Path("roi.json")
+        out_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        print(f"\n⚠️  Non ho potuto scrivere accanto al video ({exc}).")
+        print(f"   ROI salvata in: {out_path.resolve()}")
 
     print(f"\n✅ ROI salvata in: {out_path}")
     for i, (x, y) in enumerate(points, 1):
